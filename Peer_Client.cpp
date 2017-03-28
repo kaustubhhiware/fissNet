@@ -1,340 +1,182 @@
-#include <sys/socket.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <unistd.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <utility>      
+#include <string>       
+#include <iostream>     
+#include <vector>     
 #include <netinet/in.h>
 #include <netdb.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <arpa/inet.h>
-#include <dirent.h>
-#include <list>
-#include <string>
-#include <iostream>
-#include <vector>
-using namespace std;
+#include <map>
 
-list<string> serverfiles;
-vector<string> allfiles;
-// usage - ./client fisip
-//
+#define CHUNKSIZE 32
+#define MAXSIZE 512
 
-// standard function to print all errors > assgn4/B.c
-void printerror(const char* printmsg)
-{
-    fprintf(stderr, "+--- %s : ",printmsg );
-    perror("");
+using namespace std; 
+
+int main(int argc, char *argv[]) {
+  int sockfd,portno;
+  socklen_t len;
+  char *token;
+  int nbytes;
+  char buffer[MAXSIZE];
+  char buffer_2[MAXSIZE];
+  char buffer_3[MAXSIZE];
+  char buffer_4[MAXSIZE];
+  struct hostent *server;
+  struct sockaddr_in server_loc;
+  if(argc < 3)
+  {
+    printf("\nPlease specify address and port\n");
+    exit(1);
+  }
+  portno=atoi(argv[2]);
+  sockfd=socket(AF_INET,SOCK_DGRAM,0);
+  if(sockfd < 0)
+    perror("ERROR opening socket");
+  server=gethostbyname(argv[1]);
+  if(server == NULL)
+  {
+    printf("ERROR, no such host\n");
     exit(0);
-}
-
-// code for client for FIS
-int sfd,wsfd;
-char buffer[1024];
-socklen_t addr_size;
-
-// list the FILES only in current folder
-void listDir()
-{
-    DIR *d;
-    struct dirent *dir;
-    d = opendir("."); // get the files in server locations
-    if (d) {
-    while ((dir = readdir(d)) != NULL)
+  }
+  bzero((char*)&server_loc,sizeof(server_loc));
+  server_loc.sin_family=AF_INET;
+  bcopy((char*)server->h_addr,(char*)&server_loc.sin_addr.s_addr,server->h_length);
+  server_loc.sin_port=htons(portno);
+  len=sizeof(server_loc);
+  while(1)
+  {
+    // clear the terminal
+    const char* blank = "\e[1;1H\e[2J";
+    write(STDOUT_FILENO,blank,12);
+    printf("+------------------------------------------------------------------------------+\n");
+    printf("|                             Welcome to fissNet !                             |\n");
+    printf("+------------------------------------------------------------------------------+\n");
+    printf("|                          What are you looking for ?                          |\n");
+    printf("+------------------------------------------------------------------------------+\n");
+    printf("\nEnter filename to download: ");
+    scanf("%s",buffer_2);
+    strcpy(buffer,"REQUEST ");
+    strcat(buffer,buffer_2);
+    strcpy(buffer_3,buffer);
+    strcpy(buffer_4,buffer_2);
+    if((nbytes=sendto(sockfd,buffer,MAXSIZE,0,(struct sockaddr*)&server_loc,len)) < 0)
     {
-        if (dir->d_type == DT_REG)
+      perror("Can't send");
+    }
+    nbytes=recvfrom(sockfd,buffer_2,MAXSIZE,0,(struct sockaddr*)&server_loc,&len);
+    printf("\nGot ack: %s\n",buffer_2);
+    if(nbytes > 0)
+    {
+      if(buffer_2[0] == 'F' && buffer_2[1] == 'A')
+      {
+        printf("\n File not available\n");
+      }
+      else
+      {
+        token=strtok(buffer_2+8," ");
+        int sockfd_stream, portno_stream, n;
+        struct sockaddr_in server_loc_stream;
+        struct hostent *server_stream;
+        char buffer_stream[256];
+        portno_stream=10011;
+        sockfd_stream=socket(AF_INET, SOCK_STREAM, 0);
+        if(sockfd_stream < 0)
+            perror("ERROR opening socket");
+        server_stream=gethostbyname(token);
+        token=strtok(NULL," ");
+        portno_stream=atoi(token);
+        if(server_stream == NULL) 
         {
-            serverfiles.push_back(dir->d_name);
+            fprintf(stderr,"\nERROR, no such host\n");
+            exit(0);
         }
-    }
-    closedir(d);
- }
-}
 
-char sendBuff[1025];
-int sockfd;
-char recvBuff[1024];
-struct sockaddr_in serv_addr;
-
-int connect_to_fis() {
-    sockfd = 0;
-
-    memset(recvBuff, '0' ,sizeof(recvBuff));
-    if((sockfd = socket(AF_INET, SOCK_DGRAM, 0))< 0) {
-    printf("\n Error : Could not create socket \n");
-    return 1;
-    }
-
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(12000);
-    serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-
-    if(connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr))<0) {
-    printf("\n Error : Connect Failed \n");
-    return 1;
-    }
-}
-
-void send_file_list() {
-    strcpy(sendBuff, "File list sent by client");
-    // write(sockfd, sendBuff, strlen(sendBuff));
-struct sockaddr_storage sender;
-socklen_t sendsize = sizeof(sender);
-bzero(&sender, sizeof(sender));
-sendto(sockfd, sendBuff, sizeof(sendBuff), 0, (struct sockaddr *)&sender, sendsize);
-}
-
-
-void receive_file_list () {
-    int n = 0;
-    while((n = read(sockfd, recvBuff, sizeof(recvBuff)-1)) > 0) {
-    recvBuff[n] = 0;
-    if(fputs(recvBuff, stdout) == EOF) {
-    printf("\n Error : Fputs error");
-    }
-    printf("\n");
-    }
-    // printf("<= %s\n", recvBuff);
-}
-
-void view_allfile_list () {
-    cout << "Files available to download:" << endl;
-    for (vector<string>::iterator it = allfiles.begin() ; it != allfiles.end(); ++it){
-    cout << ' ' << *it << endl;
-    }
-}
-void view_file_list () {
-    for(list<string>::iterator list_iter = serverfiles.begin();
-    list_iter != serverfiles.end(); list_iter++)
-    {
-    cout<<*list_iter<<endl;
-    }
-}
-
-int filesocket;
-void send_fname(string fname)
-{
-    char buffer[1024];
-    strcpy(buffer,fname.c_str());
-    send(filesocket,buffer,strlen(buffer),0);
-}
-
-void request_file(string ip,string file,string saveas)
-{
-    socklen_t addr_size;
-    sockaddr_in serverAddr;
-
-    filesocket = socket(PF_INET, SOCK_STREAM, 0);
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(12002);
-    serverAddr.sin_addr.s_addr = inet_addr(ip.c_str());
-    memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);
-    addr_size = sizeof serverAddr;
-    if(connect(filesocket, (struct sockaddr *) &serverAddr, addr_size)<0)
-    printerror("Connect: ");
-    send_fname(file);
-    FILE *f=fopen(saveas.c_str(),"w");
-    char buffer[1024];
-    int t;
-//    recv(filesocket, buffer, 1024, 0);
-// int fsize = atoi(buffer);
- // cout << "Hey I got the file size: " << buffer << endl;
-//    int fgetsize = 0;
-    while((t=recv(filesocket, buffer, 1024, MSG_WAITALL))>40) {
- // fgetsize+=t;
- // cout << fgetsize << endl;
-    //cout << t << endl;
-    for(int i=0;i<t;i++)
-    putc(buffer[i],f);
-//    if(t<1024) {
-    //	printf("%d",t);
-    //    	break;
-//	    if (fgetsize==fsize)
-//	    break;
-    //}
-    }
-//    cout << "Out of loop." << endl;
-    fclose(f);
-    close(filesocket);
-    cout << "File saved.\n";
-}
-
-int sock, n;
-unsigned int length;
-struct sockaddr_in server, from;
-struct hostent *host_ip;
-
-void connectfis()
-{
-    sock= socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) printerror("socket");
-
-    server.sin_family = AF_INET;
-    host_ip = gethostbyname("localhost");
-    if (host_ip==0) printerror("Unknown host");
-
-    bcopy((char *)host_ip->h_addr,
-     (char *)&server.sin_addr,
-     host_ip->h_length);
-
-    server.sin_addr.s_addr = inet_addr("10.147.48.208");
-    server.sin_port = htons(12000);
-    length=sizeof(struct sockaddr_in);
-}
-
-string append_filenams() {
-    string out;
-    // view_file_list();
-    for(list<string>::iterator list_iter = serverfiles.begin();
-    list_iter != serverfiles.end(); list_iter++)
-    {
-    out += *list_iter + ":";
-    }
-    return out;
-}
-
-
-int getDetails (string file) {
-    file = "REQ"+file;
-    connectfis();
-    strcpy(buffer,file.c_str());
-    n=sendto(sock,buffer,
-     strlen(buffer),0,(const struct sockaddr *)&server,length);
-    if (n < 0) printerror("Sendto");
-    n = recvfrom(sock,buffer,1024,0,(struct sockaddr *)&from, &length);
-    if (n < 0) printerror("recvfrom");
-    write(1,"Got an ack: ",12);
-    write(1,buffer,n);
-    close(sock);
-    if (buffer[0]=='-') return -1;
-    return 0;
-}
-
-void Tokenize(const string& str,
-    vector<string>& tokens,
-    const string& delimiters = ":") {
-    // Skip delimiters at beginning.
-    string::size_type lastPos = str.find_first_not_of(delimiters, 0);
-    // Find first "non-delimiter".
-    string::size_type pos     = str.find_first_of(delimiters, lastPos);
-
-    while (string::npos != pos || string::npos != lastPos)
-    {
-    // Found a token, add it to the vector.
-    tokens.push_back(str.substr(lastPos, pos - lastPos));
-    // Skip delimiters.    Note the "not_of"
-    lastPos = str.find_first_not_of(delimiters, pos);
-    // Find next "non-delimiter"
-    pos = str.find_first_of(delimiters, lastPos);
-    }
-}
-
-int update_file_list() {
-    string s = "UPD";
-    connectfis();
-    strcpy(buffer,s.c_str());
-    n=sendto(sock,buffer,
-     strlen(buffer),0,(const struct sockaddr *)&server,length);
-    if (n < 0) printerror("Sendto");
-    n = recvfrom(sock,buffer,1024,0,(struct sockaddr *)&from, &length);
-    if (n < 0) printerror("recvfrom");
-    vector<string> tokens;
-    string buf(buffer,n);
-    Tokenize(buf, tokens);
-    vector<string> vv = tokens;
-    allfiles.clear();
-    for (vector<string>::iterator it = vv.begin() ; it != vv.end(); ++it){
-    // cout << ' ' << *it << endl;
-    allfiles.push_back(*it);
-    }
-    view_allfile_list();
-    close(sock);
-    if (buffer[0]=='-') return -1;
-    return 0;
-}
-
-void init()
-{
-    connectfis();
-    // printf("Please enter the message: ");
-    string f = append_filenams();
-    f = "ADD" + f;
-    // cout << f << endl;
-    strcpy(buffer, f.c_str());
-    // bzero(buffer,1024);
-    // fgets(buffer,1024,stdin);
-    n=sendto(sock,buffer,
-     strlen(buffer),0,(const struct sockaddr *)&server,length);
-    if (n < 0) printerror("Sendto");
-    n = recvfrom(sock,buffer,1024,0,(struct sockaddr *)&from, &length);
-    if (n < 0) printerror("recvfrom");
- //    printf("Datagram's IP address is: %s\n", inet_ntoa(from.sin_addr));
- //    printf("Datagram's port is: %d\n", (int) ntohs(from.sin_port));
-
-    write(1,"Got an ack: ",12);
-    write(1,buffer,n);
-    close(sock);
-}
-
-int main(int argc, char *argv[])
-{
-    char fis_ip[20];
-    if(argc < 2)
-    {
-        printf("+--- Need to enter IP address !\nCorrect usage - ./client ip\n");
-        exit(0);
-    }
-    sscanf(argv[1],"%s",fis_ip);
-    listDir(); // get all the files listed by server
-    init();
-    // connect_to_fis();
-    // send_file_list();
-    // receive_file_list();
-    printf("Connected\n");
-    int input = 1;
-    char instr[100];
-    string fname, save_as;
-    while(1)
-    {
-        // clear the terminal
-        const char* blank = "\e[1;1H\e[2J";
-        write(STDOUT_FILENO,blank,12);
-
-        printf("+------------------------------------------------------------------------------+\n");
-        printf("|                             Welcome to fissNet !                             |\n");
-        printf("+------------------------------------------------------------------------------+\n");
-        printf("|                          What are you looking for ?                          |\n");
-        printf("|                     1 to view files available at server                      |\n");
-        printf("|                             2 to download a file                             |\n");
-        printf("|                            Anything else to exit                             |\n");
-        printf("+------------------------------------------------------------------------------+\n");
-        scanf("%s",instr);
-        input = 0;
-        sscanf(instr,"%d",&input);
-        // if case string does not contain a int, input is set as 0
-        if(input==1)
+        bzero((char*)&server_loc_stream,sizeof(server_loc_stream));
+        server_loc_stream.sin_family=AF_INET;
+        bcopy((char*)server_stream->h_addr,(char*)&server_loc_stream.sin_addr.s_addr,server_stream->h_length);
+        server_loc_stream.sin_port=htons(portno_stream);
+        while(connect(sockfd_stream,(struct sockaddr*)&server_loc_stream,sizeof(server_loc_stream)) < 0);
+        nbytes=write(sockfd_stream,buffer_3,strlen(buffer_3));
+        
+        if(nbytes < 0)
         {
-            init();
-            update_file_list();
+          perror("writing: ");
         }
-        else if(input==2)
+        fflush(stdout);
+        nbytes=read(sockfd_stream,buffer,20);
+        fflush(stdout);
+        
+        if(nbytes < 0)
         {
-            printf("File name: ");
-            cin >> fname;
-            if (getDetails(fname) ==-1)
+          perror("Can't read");
+        }
+        
+        if(strcmp(buffer,"SUCCESS") == 0)
+        {
+          fflush(stdout);
+          char *filename=basename(buffer_4);
+          int nwritten,nread;
+          printf("\nGive path to save the file:");
+          scanf("%s",buffer_3);
+          
+          if(buffer_3[strlen(buffer_3)-1] != '/')
+          {
+            strcat(buffer_3,"/");
+          }
+          
+          strcat(buffer_3,filename);
+          printf("\n\n%s\n",buffer_3);
+          int fd_to=open(buffer_3,O_WRONLY|O_CREAT,0666);
+          if(fd_to < 0)
+          {
+            perror("Can't write/create");
+          }
+          else{
+            int i;
+            while(nbytes=read(sockfd_stream,buffer,CHUNKSIZE),nbytes > 0)
             {
-                cout << "File not found." << endl;
-                break;
+              fflush(stdout);
+              char *out_ptr=buffer;
+              do{
+                nwritten=write(fd_to,out_ptr,nbytes);
+                if(nwritten >= 0)
+                {
+                  nbytes-=nwritten;
+                  out_ptr+=nwritten;
+                }
+                else if(errno != EINTR)
+                {
+                  if(fd_to >= 0)
+                    close(fd_to);
+                  return -1;
+                }
+              } while(nbytes > 0);
             }
-            printf("\nSave as: ");
-            cin >> save_as;
-            string ip(buffer,n);
-            request_file(ip,fname,save_as);
+            close(sockfd_stream);
+            close(fd_to);
+            printf("\nFile successfully downloaded\n");
+          }
         }
-        else exit(0);
-
-        printf("+--- Press [ENTER] to continue ...");
-        char buf;
-        scanf ("%c%*c", &buf);
+        else
+        {
+          printf("\nCan't read\n");
+        }
+      }
+    }else
+    {
+      printf("\nCan't get response from FIS server");
     }
+    printf("+--- Press [ENTER] to continue ...");
+    char buf;
+    scanf ("%c%*c", &buf);
+  }
 }

@@ -1,20 +1,19 @@
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
+#include <arpa/inet.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/types.h>
-#include <map>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <utility>
 #include <string>
 #include <iostream>
 #include <vector>
-#define NEW 1
-#define REQ 2
-#define UPD 3
-#define strvec vector<string>
+#include <map>
+using namespace std;
+#define MAXSIZE 512
+
 /*
 * 14CS30011 : Hiware Kaustubh Narendra
 * 14CS30017 : Surya Midatala
@@ -24,159 +23,147 @@
 * run with
 * ./fis port
 */
-using namespace std;
 
-map<string, string> files;
-void showContent()
+typedef pair<string, int> location;
+typedef map<string, vector<location> > files;
+
+void print_files(files &f)
 {
-    cout << "Identifying hostable files on the servers\n";
-    map<string,string>::iterator it;
-    for (it=files.begin(); it!=files.end(); ++it)
+    files::iterator it = f.begin();
+    int i=0;
+    location l;
+    for( ; it != f.end(); it++)
     {
-        cout << it->first << "@" << it->second << '\n';
+        cout<<endl<<it->first;
+        for(i=0;i < it->second.size();++i)
+        {
+            l=it->second.at(i);
+            cout << "\n" << l.first << " <port>" << l.second << endl;
+        }
     }
+    fflush(stdout);
 }
-
-// int addfile (string filename, string ip)
-// {
-//     files.insert ( pair<string,string>(filename,ip) );
-// }
 
 // standard function to print all errors
 void printerror(int x, const char* printmsg)
 {
     if(x < 0)
     {
-        fprintf(stderr, "+--- %s : ",printmsg );
+        fprintf(stderr, "+--- Error in %s : ",printmsg );
         perror("");
-        exit(0);
+        exit(1);
     }
 }
 
-// convert char* to str
-string char_to_str(char* buf, int size)
+int main(int argc, char *argv[])
 {
-    string s(buf,size);
-    return s.substr(3);
-}
+    files files_to_ip = files();
+    int sockfd,fis_port;
+    string s;
+    socklen_t clilen;
 
-void get_ip(char* buf, int size)
-{
-    string ip;
-    string file = char_to_str(buf,size);
-    cout << "Client wants to download a file " << file << endl;
-    if (files.find(file) == files.end())
+    char buffer[MAXSIZE], message[MAXSIZE];
+    int nbytes;
+    char *token;
+    struct sockaddr_in server_loc;
+    struct sockaddr_in client_loc;
+    int len=100;
+    char buffer_2[len], buffer_3[len];
+
+    if(argc < 2)
     {
-        cout << "+--- Error: No such file exists" << endl;
-        sprintf (buf, "-");
+        printf("Need to specify port! Use ./fis port\n");
     }
-    else strcpy(buf, files[file].c_str());
-}
-
-// strvec split(string str, const char* delim)
-// {
-//     strvec v;
-//     string s;
-//
-//     for(string::const_iterator i = str.begin(); i <= str.end(); ++i)
-//     {
-//         if(*i != *delim && i != str.end())
-//         {
-//             s += *i;
-//         }
-//         else
-//         {
-//             if (s.length() > 0)
-//             {
-//                 v.push_back(s);
-//                 cout << s;
-//             }
-//             s = "";
-//         }
-//     }
-//     return v;
-// }
-
-void Tokenize(const string& str,
-    strvec& tokens,
-    const string& delimiters = ":") {
-  // Skip delimiters at beginning.
-    string::size_type lastPos = str.find_first_not_of(delimiters, 0);
-  // Find first "non-delimiter".
-    string::size_type pos = str.find_first_of(delimiters, lastPos);
-
-    while (string::npos != pos || string::npos != lastPos) {
-      // Found a token, add it to the vector.
-        tokens.push_back(str.substr(lastPos, pos - lastPos));
-    // Skip delimiters.  Note the "not_of"
-        lastPos = str.find_first_not_of(delimiters, pos);
-    // Find next "non-delimiter"
-        pos = str.find_first_of(delimiters, lastPos);
+    else
+    {
+        fis_port = atoi(argv[1]);
     }
-}
 
+    sockfd=socket(AF_INET,SOCK_DGRAM,0);
+    bzero((char*)&server_loc,sizeof(server_loc));
+    server_loc.sin_family = AF_INET;
+    server_loc.sin_addr.s_addr = INADDR_ANY;
+    server_loc.sin_port = htons(fis_port);
 
-int main()
-{
-    showContent();
+    int binding = bind(sockfd,(struct sockaddr*)&server_loc,sizeof(server_loc)
+    printerror(binding, "binding");
 
-    int s, length, n;
-    socklen_t fromlen;
-    struct sockaddr_in server, from;
-    char buf[1024];
+    listen(sockfd,5);
+    while(1)
+    {
+        clilen=sizeof(client_loc);
+        nbytes=recvfrom(sockfd,message,MAXSIZE,0,(struct sockaddr*)&client_loc,&clilen);
+        printerror(nbytes, "recfrom");
 
-    s = socket(AF_INET, SOCK_DGRAM, 0);
-    printerror(s, "Opening socket");
-    length = sizeof(server);
-    bzero(&server,length);
-    server.sin_family=AF_INET;
-    server.sin_addr.s_addr=INADDR_ANY;
-    server.sin_port=htons(12000);
-    printerror(bind(s,(struct sockaddr *)&server,length), "binding");
-
-    fromlen = sizeof(struct sockaddr_in);
-    string type;
-    while (1) {
-        cout << "While loop" << '\n';
-        n = recvfrom(s,buf,1024,0,(struct sockaddr *)&from,&fromlen);
-        printf("Datagram's IP address is: %s\n", inet_ntoa(from.sin_addr));
-        printf("Datagram's port is: %d\n", (int) ntohs(from.sin_port));
-        printerror(n, "recvfrom");
-
-        string temp(buf);
-        type = temp.substr(0,3);
-        // cout << type << endl;
-        if (strcmp(type.c_str(),"REQ")==0) {
-            // A request for file
-            printf("This is a file request.\n");
-            get_ip(buf, n);
-        }
-        else if (strcmp(type.c_str(),"ADD")==0) {
-            // A list of files
-            printf("This is file list\n");
-            string flist = char_to_str(buf, n);
-            strvec tokens;
-            Tokenize(flist, tokens);
-            for (strvec::iterator it = tokens.begin() ; it != tokens.end(); ++it)
-            {
-                files[*it] = inet_ntoa(from.sin_addr);
-            }
-            showContent();
-            strcpy(buf,"Files added\n");
-        }
-        else if (strcmp(type.c_str(),"UPD")==0) {
-            // A list of files
-            printf("File list requested.\n");
-
-            string f;
-            map<string,string>::iterator it;
-            for (it=files.begin(); it!=files.end(); ++it)
-                f += it->first + ":";
-
-            strcpy(buf,f.c_str());
-        }
-        n = sendto(s,buf,strlen(buf),
-            0,(struct sockaddr *)&from,fromlen);
-        printerror(n, "sendto");
     }
+    inet_ntop(AF_INET,&(client_loc.sin_addr),buffer_2,len);
+    printf("\nMESSAGE RECEIVED: %s\n",message);
+    printf("\n\taddress:%s\n",buffer_2);
+    printf("\n\tDatagram port:%d\n",ntohs((client_loc.sin_port)));
+    fflush(stdout);
+    if(message[0]=='S'&&message[1]=='H'){
+      printf("\nNew peer connected to share stuff\n");
+      fflush(stdout);
+      files::iterator it=files_to_ip.begin();
+      token=strtok(message+6," ");
+      location incoming_location=make_pair(string(buffer_2),atoi(token));
+      token=strtok(NULL,"\n");
+      if(token==NULL){
+        printf("\nWrong Format");
+        continue;
+        //exit(1);
+      }
+      s=string(token);
+      it=files_to_ip.find(s);
+      if(it!=files_to_ip.end()){
+        it->second.push_back(incoming_location);
+      }
+      else{
+        files::iterator it=files_to_ip.begin();
+        vector<location> x;
+        x.push_back(incoming_location);
+        pair<string,vector<location> > bar=make_pair(s,x);
+        it=files_to_ip.insert(it,bar);
+      }
+      while((token=strtok(NULL,"\n"))!=NULL){
+        s=string(token);
+        it=files_to_ip.find(s);
+        if(it!=files_to_ip.end()){
+          it->second.push_back(incoming_location);
+        }
+        else{
+          it=files_to_ip.begin();
+          vector<location> x;
+          x.push_back(incoming_location);
+          pair<string,vector<location> > bar=make_pair(s,x);
+          it=files_to_ip.insert(it,bar);
+        }
+      }
+      print_files(files_to_ip);
+      strcpy(buffer,"Message Received");
+    }
+    else if(message[0]=='R'&&message[1]=='E'){
+      s=string(message+8);
+      files::iterator it=files_to_ip.begin();
+      it=files_to_ip.find(s);
+      if(it!=files_to_ip.end()){
+        location bar=it->second.at(it->second.size()-1);
+        strcpy(buffer,"SUCCESS ");
+        strcpy(buffer_2,bar.first.c_str());
+        strcat(buffer_2," ");
+        sprintf(buffer_3,"%d",bar.second);
+        strcat(buffer_2,buffer_3);
+        strcat(buffer,buffer_2);
+      }
+      else{
+        strcpy(buffer,"FAIL");
+      }
+    }
+    fflush(stdout);
+    nbytes=sendto(sockfd,buffer,MAXSIZE,0,(struct sockaddr*)&client_loc,clilen);
+    if(nbytes<0){
+      perror("sendto (server)");
+    }
+  }
+  return 0;
 }
