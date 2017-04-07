@@ -15,8 +15,8 @@ using namespace std;
 #define MAXSIZE 512
 
 /*
-* 14CS30011 : Hiware Kaustubh Narendra
-* 14CS30017 : Surya Midatala
+* Written by kingofools (Surya) and kaustubhhiware
+* as a part of Networks Lab
 */
 
 /* File information server
@@ -27,23 +27,6 @@ using namespace std;
 typedef pair<string, int> location;
 typedef map<string, vector<location> > files;
 
-void print_files(files &f)
-{
-    files::iterator it = f.begin();
-    int i=0;
-    location l;
-    for( ; it != f.end(); it++)
-    {
-        cout<<endl<<it->first;
-        for(i=0;i < it->second.size();++i)
-        {
-            l=it->second.at(i);
-            cout << "\n" << l.first << " <port>" << l.second << endl;
-        }
-    }
-    fflush(stdout);
-}
-
 // standard function to print all errors
 void printerror(int x, const char* printmsg)
 {
@@ -51,119 +34,167 @@ void printerror(int x, const char* printmsg)
     {
         fprintf(stderr, "+--- Error in %s : ",printmsg );
         perror("");
-        exit(1);
+        exit(0);
     }
+}
+
+
+void print_files(files &file_list)
+{
+    files::iterator iter;
+    int i=0;
+    location loc;
+    for(iter = file_list.begin(); iter != file_list.end(); iter++)
+    {
+        cout << endl << iter->first;
+        for(i=0;i < iter->second.size();++i)
+        {
+            loc=iter->second.at(i);
+            cout << " hosted on " << loc.first << "<port>" << loc.second << endl;
+        }
+    }
+    fflush(stdout);
 }
 
 int main(int argc, char *argv[])
 {
     files files_to_ip = files();
-    int sockfd,fis_port;
+    int sockfd,server_port;
     string s;
     socklen_t clilen;
 
-    char buffer[MAXSIZE], message[MAXSIZE];
-    int nbytes;
-    char *token;
-    struct sockaddr_in server_loc;
-    struct sockaddr_in client_loc;
-    int len=100;
-    char buffer_2[len], buffer_3[len];
+    char buff[MAXSIZE], msg[MAXSIZE];
+    int num_bytes;
+    char *tok;
+    struct sockaddr_in serv_addr;
+    struct sockaddr_in client_addr;
+
+    int len = 512;
+    char buff_2[len];
+    char buff_3[len];
 
     if(argc < 2)
     {
-        printf("Need to specify port! Use ./fis port\n");
+        printf("+--- Need to specify ip! Use - ./fis port\n");
+        exit(0);
     }
     else
     {
-        fis_port = atoi(argv[1]);
+        server_port=atoi(argv[1]);
+        if(server_port < 10000 || server_port > 15000)
+        {
+            printf("+--- Need to specify port between 10000 and 15000 !\n");
+            exit(0);
+        }
     }
 
     sockfd=socket(AF_INET,SOCK_DGRAM,0);
-    bzero((char*)&server_loc,sizeof(server_loc));
-    server_loc.sin_family = AF_INET;
-    server_loc.sin_addr.s_addr = INADDR_ANY;
-    server_loc.sin_port = htons(fis_port);
+    bzero((char*)&serv_addr,sizeof(serv_addr));
+    serv_addr.sin_family=AF_INET;
+    serv_addr.sin_addr.s_addr=INADDR_ANY;
+    serv_addr.sin_port=htons(server_port);
 
-    int binding = bind(sockfd,(struct sockaddr*)&server_loc,sizeof(server_loc)
-    printerror(binding, "binding");
+    int binder = bind(sockfd,(struct sockaddr*)&serv_addr,sizeof(serv_addr));
+    printerror(binder, "binding");
 
     listen(sockfd,5);
     while(1)
     {
-        clilen=sizeof(client_loc);
-        nbytes=recvfrom(sockfd,message,MAXSIZE,0,(struct sockaddr*)&client_loc,&clilen);
-        printerror(nbytes, "recfrom");
+        clilen=sizeof(client_addr);
+        num_bytes=recvfrom(sockfd,msg,MAXSIZE,0,(struct sockaddr*)&client_addr,&clilen);
+        printerror(num_bytes, "recfrom");
 
-    }
-    inet_ntop(AF_INET,&(client_loc.sin_addr),buffer_2,len);
-    printf("\nMESSAGE RECEIVED: %s\n",message);
-    printf("\n\taddress:%s\n",buffer_2);
-    printf("\n\tDatagram port:%d\n",ntohs((client_loc.sin_port)));
-    fflush(stdout);
-    if(message[0]=='S'&&message[1]=='H'){
-      printf("\nNew peer connected to share stuff\n");
-      fflush(stdout);
-      files::iterator it=files_to_ip.begin();
-      token=strtok(message+6," ");
-      location incoming_location=make_pair(string(buffer_2),atoi(token));
-      token=strtok(NULL,"\n");
-      if(token==NULL){
-        printf("\nWrong Format");
-        continue;
-        //exit(1);
-      }
-      s=string(token);
-      it=files_to_ip.find(s);
-      if(it!=files_to_ip.end()){
-        it->second.push_back(incoming_location);
-      }
-      else{
-        files::iterator it=files_to_ip.begin();
-        vector<location> x;
-        x.push_back(incoming_location);
-        pair<string,vector<location> > bar=make_pair(s,x);
-        it=files_to_ip.insert(it,bar);
-      }
-      while((token=strtok(NULL,"\n"))!=NULL){
-        s=string(token);
-        it=files_to_ip.find(s);
-        if(it!=files_to_ip.end()){
-          it->second.push_back(incoming_location);
+        // # af, src, dest, size
+        inet_ntop(AF_INET,&(client_addr.sin_addr),buff_2,len);
+        printf("\n%s %s\n",buff_2, msg);
+        printf(" over Datagram port:%d\n",ntohs((client_addr.sin_port)));
+        fflush(stdout);
+
+        if(msg[0]=='S' && msg[1]=='H') // new files have been updated
+        {
+            printf("\nNew server now functional\n");
+            fflush(stdout);
+            files::iterator iter=files_to_ip.begin();
+
+            tok = strtok(msg + 6, " ");
+            location incoming_location=make_pair(string(buff_2),atoi(tok));
+            tok = strtok(NULL,"\n");
+            if(tok==NULL)
+            {
+                printf("Incorrect request\n");
+                continue;
+            }
+
+            s = string(tok);
+            iter = files_to_ip.find(s);
+            if(iter!=files_to_ip.end())
+            {
+                // if exists, ass this file
+                iter->second.push_back(incoming_location);
+            }
+            else
+            {
+                // if this is new, add as new server
+                files::iterator iter = files_to_ip.begin();
+                vector<location> x;
+                x.push_back(incoming_location);
+                pair<string,vector<location> > bar=make_pair(s,x);
+                iter=files_to_ip.insert(iter,bar);
+            }
+
+            while((tok=strtok(NULL,"\n"))!=NULL)
+            {
+                s=string(tok);
+                iter=files_to_ip.find(s);
+                if(iter != files_to_ip.end())
+                {
+                    iter->second.push_back(incoming_location);
+                }
+                else{
+                    iter=files_to_ip.begin();
+                    vector<location> x;
+                    x.push_back(incoming_location);
+                    pair<string,vector<location> > bar=make_pair(s,x);
+                    iter=files_to_ip.insert(iter,bar);
+                }
+            }
+            print_files(files_to_ip);
+            strcpy(buff,"Message Received");
         }
-        else{
-          it=files_to_ip.begin();
-          vector<location> x;
-          x.push_back(incoming_location);
-          pair<string,vector<location> > bar=make_pair(s,x);
-          it=files_to_ip.insert(it,bar);
+        else if(msg[0]=='R' && msg[1]=='E') // client requests for a file
+        {
+            s=string(msg+8);
+            files::iterator iter=files_to_ip.begin();
+
+            iter=files_to_ip.find(s);
+            if(iter != files_to_ip.end())
+            {
+                location bar=iter->second.at(iter->second.size()-1);
+                strcpy(buff,"SUCCESS ");
+                strcpy(buff_2,bar.first.c_str());
+                strcat(buff_2," ");
+                sprintf(buff_3,"%d",bar.second);
+                strcat(buff_2,buff_3);
+                strcat(buff,buff_2);
+            }
+            else{
+                strcpy(buff,"FAIL");
+            }
         }
-      }
-      print_files(files_to_ip);
-      strcpy(buffer,"Message Received");
+        else if(msg[0]=='I' && msg[1]=='N') // client asks for file list
+        {
+            s = string(msg + 6);
+            files::iterator iter;
+            strcpy(buff, "\n+--- Files available : \n");
+            for(iter = files_to_ip.begin(); iter != files_to_ip.end(); iter++)
+            {
+                strcat(buff, iter->first.c_str());
+                strcat(buff, "\n");
+            }
+
+        }
+        fflush(stdout);
+        num_bytes=sendto(sockfd,buff,MAXSIZE,0,(struct sockaddr*)&client_addr,clilen);
+        printerror(num_bytes, "recfrom");
     }
-    else if(message[0]=='R'&&message[1]=='E'){
-      s=string(message+8);
-      files::iterator it=files_to_ip.begin();
-      it=files_to_ip.find(s);
-      if(it!=files_to_ip.end()){
-        location bar=it->second.at(it->second.size()-1);
-        strcpy(buffer,"SUCCESS ");
-        strcpy(buffer_2,bar.first.c_str());
-        strcat(buffer_2," ");
-        sprintf(buffer_3,"%d",bar.second);
-        strcat(buffer_2,buffer_3);
-        strcat(buffer,buffer_2);
-      }
-      else{
-        strcpy(buffer,"FAIL");
-      }
-    }
-    fflush(stdout);
-    nbytes=sendto(sockfd,buffer,MAXSIZE,0,(struct sockaddr*)&client_loc,clilen);
-    if(nbytes<0){
-      perror("sendto (server)");
-    }
-  }
-  return 0;
 }
